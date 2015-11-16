@@ -1,0 +1,180 @@
+---
+title: "Practical Machine Learning project"
+author: "Elan"
+date: "15 November 2015"
+output: html_document
+---
+
+
+
+## Synopsis
+This document details the analysis done on the Human Activity Detection Dataset. The dataset  has data about exercies done by 6 people who were asked to perform barbell lifts correctly and incorrectly in 5 different ways and the goal of this analysis is to predict the manner in which they did the exercise. 
+
+
+### Data
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE, message = FALSE  , warning = FALSE)
+
+```
+
+### Load Data
+
+#### Load Libraries
+Libraries required for this analysis are loaded below
+
+```{r}
+library(caret)
+library(randomForest)
+library(rpart)
+```
+
+#### Read HAR Data
+```{r}
+
+trainurl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+datainp<-read.csv(trainurl,na.strings=c("", "NA"))
+
+testurl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+datatst<-read.csv(testurl,na.strings=c("", "NA"))
+dim(datainp)
+```
+
+
+### Analyse and Clean Data
+As you see above, there are 160 columns. The column 'classe' is what need to predict from the information available in rest of the fields. The below identifies the percentage for NA values in each of the columns and display a sample output. 
+ 
+#### Identify NA columns
+```{r}
+percentage_na<-sapply(datainp,function(x){
+        paste(round(100*(mean(is.na(x))),2),"%")})
+percentage_na[30:40]
+```
+
+It has been observed that there are many columns which has around 97% of NA values in that, so we need to ignore them for our prediction model.
+
+During exploratory data analysis, it has been observed that the first 7 fields has name,timestamp,window etc which are not found to be relevant for model purposes as they are not relevant to movement sensors. So they need removing as well.
+ 
+#### Remove NA columns and first 7 columns
+```{r}
+cleandata<-datainp[,colSums(is.na(datainp)) < 19000]
+colnamesx<-names(cleandata)
+remcolns<-colnamesx[1:7]
+cleandata<-cleandata[,!(names(cleandata) %in% remcolns)]
+dim(cleandata)
+```
+
+After data cleaning, we have less number of columns that may have the information about our predictor column 'classe'. Now, we identify the columns that are co-related and remove them as well as seen below.
+```{r}
+descrCor <-  cor(cleandata[,1:52])
+highlyCorDescr <- findCorrelation(descrCor, cutoff = .85)
+filtered_data <- cleandata[,-highlyCorDescr]
+dim(filtered_data)
+```
+
+ 
+### Prediction Models
+
+Now the above dataset has the information which we believe is relevant for our prediction model. We first split the data into test(30%) and training dataset(70%). We train the model using the train dataset and validate the model usung the test dataset.
+```{r}
+set.seed(125)
+inTraining <- createDataPartition(filtered_data$classe, p = .7, list = FALSE)
+
+training <- filtered_data[ inTraining,]
+testing  <- filtered_data[-inTraining,]
+```
+
+For classification , we try 3 different models as below 
+ 
+    Decision Trees
+  
+    Random Forest
+  
+    Generalized Boosted Regression Models
+  
+  
+#### Out of Sample error and Cross validation
+For each of the models, we specific the number of folds for cross-validation as 5 to allow 5 resampling iterations. 
+
+The expectation is that the out of sample error i.e the error in applying the model to a test dataset not used during model building , to be less. If less we can conclude that the model is fit for purpose. 
+
+
+#### Decision Trees
+We fit the model using the Becision tree method and predict the values of the test partition we created. But as seen in the outcome, the accuracy is just 49% which means the model we have built is not fit for the purposes.
+```{r}
+fit1 <- train(classe ~ ., data = training, method="rpart",
+                 trControl = trainControl(method = "cv", number = 5))
+testval<-predict(fit1, newdata=testing)
+confusionMatrix(testing$classe,testval)
+```
+
+#### Random Forest
+We fit the model using the Random forest method and predict the values of the test partition we created. As seen in the outcome, the accuracy is more than 99% which means the model. 
+
+The __out of sample error is just .0097__ so this model's performance is definitely better than the decision tree model.  This may be the best fit but we will have to try Generalized Boosted Regression as well
+```{r,CachedChunk1,cache=TRUE}
+fit2 <- train(classe ~ ., data = training, method="rf",
+                 trControl = trainControl(method = "cv", number = 5))
+testval<-predict(fit2, newdata=testing)
+confusionMatrix(testing$classe,testval)
+```
+
+
+#### Generalized Boosted Regression Models
+We fit the model using the Generalized Boosted Regression method and predict the values of the test partition we created. As seen in the outcome, the accuracy is more than 95% which is better than the decision tree model but less than  the Random Forest model. 
+```{r,CachedChunk2,cache=TRUE}
+fit3 <- train(classe ~ ., data = training, method="gbm",verbose=FALSE,
+                 trControl = trainControl(method = "cv", number = 5))
+testval<-predict(fit3, newdata=testing)
+confusionMatrix(testing$classe,testval)
+```
+
+
+### Conclusion
+From the above models, it is evident that __Random Forest__ is best suited for this data, with the accuracy of over 99% and out of sample error(1-Accuracy) of .0097.  
+
+### Submission 
+
+The model fit2 is used to predict the value of the test dataset provided during the assignment as seen below.
+```{r}
+finalval<-predict(fit2,newdata=datatst)
+finalval
+```
+
+The code below writes the output to into 20 different files for each test , as suggested in the assignments.
+```{r}
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+}
+pml_write_files(finalval)
+```
+
+
+
+### Appendix 
+#### Decision Tree 
+```{r}
+plot(fit1)
+```
+
+#### Random Forest
+```{r}
+plot(fit2)
+```
+
+#### Generalized Boosted Regression Models
+```{r}
+plot(fit3)
+```
